@@ -2,10 +2,43 @@
 
 A working MVP for reviewing proposed changes between a **reference** and **candidate** Power BI semantic model expressed as PBIP/TMDL.
 
+## Normal workflow
+
+Power BI Desktop saves a PBIP project as a root folder similar to:
+
+```text
+Project/
+├── Project.Report/
+├── Project.SemanticModel/
+│   ├── .pbi/
+│   ├── definition/
+│   │   ├── model.tmdl
+│   │   ├── relationships.tmdl
+│   │   ├── tables/
+│   │   └── ...
+│   └── definition.pbism
+├── .gitignore
+└── Project.pbip
+```
+
+The reviewer now accepts that **folder directly**.
+
+For both Reference and Candidate, select either:
+
+1. the whole PBIP project root — recommended;
+2. the `.SemanticModel` folder; or
+3. the semantic model `definition` folder.
+
+The browser ignores the report, cache and editor files and sends only the TMDL files in the semantic model definition to the backend.
+
+ZIP upload remains available as an optional fallback; you do **not** need to create ZIPs for normal use.
+
+If the selected PBIP contains `model.bim` rather than a `definition/` TMDL folder, the app tells you that the model needs to be saved/upgraded using TMDL format.
+
 ## What it does
 
-- Upload a reference semantic-model ZIP and candidate semantic-model ZIP.
-- Locates a `definition/` TMDL folder inside each ZIP.
+- Select Reference and Candidate PBIP folders directly.
+- Locates the semantic model TMDL definition.
 - Builds a canonical snapshot of tables, columns and measures.
 - Detects **Added**, **Modified** and **Removed** objects.
 - Creates a persistent review workspace in SQLite.
@@ -18,7 +51,7 @@ A working MVP for reviewing proposed changes between a **reference** and **candi
 
 ## Design language
 
-The UI intentionally reuses the visual language from the `portfolio_application` React application:
+The UI reuses the visual language from the `portfolio_application` React application:
 
 - deep green `#003600`
 - accent green `#8EDF00`
@@ -31,7 +64,7 @@ Change/review semantics extend the same palette: green for added/approved, amber
 
 ## Run
 
-Requirements: Node.js 22.5+ and the system `unzip` command.
+Requirement: Node.js 22.5+.
 
 ```bash
 npm start
@@ -41,38 +74,43 @@ Then open `http://localhost:5174`.
 
 No `npm install` is required for this MVP because it uses only Node built-ins, including Node's SQLite module.
 
-## Try it with the supplied samples
+The optional legacy ZIP fallback also requires the system `unzip` command.
 
-Create the two ZIPs:
+## Synthetic samples
 
-```bash
-cd samples/reference && zip -qr ../reference-model.zip .
-cd ../candidate && zip -qr ../candidate-model.zip .
+The repo contains synthetic TMDL definitions and sample ZIPs under `samples/`.
+
+Expected comparison: **5 changes — 2 added, 2 modified, 1 removed.**
+
+You can test the folder workflow by selecting:
+
+```text
+samples/reference
+samples/candidate
 ```
 
-Upload `samples/reference-model.zip` as Reference and `samples/candidate-model.zip` as Candidate.
-
-Expected comparison: 5 changes — 2 added, 2 modified, 1 removed.
+These are simplified sample folders containing a `definition/` directory. A real PBIP root works the same way; the app finds `<name>.SemanticModel/definition/` automatically.
 
 ## Architecture
 
 ```text
-PBIP/TMDL ZIP
-      ↓
-Temporary extraction
-      ↓
+PBIP project folder
+       │
+       ├─ browser reads only *.SemanticModel/definition/**/*.tmdl
+       │
+       ▼
 TMDL parser adapter
-      ↓
+       ↓
 Canonical semantic model
-      ↓
+       ↓
 Semantic comparison engine
-      ↓
+       ↓
 Review workspace + SQLite
-      ↓
+       ↓
 Decision / comment / finalisation / export
 ```
 
-The upload ZIPs themselves are not retained. The saved review contains canonical semantic metadata, model fingerprints, change records and review decisions.
+The source PBIP folder itself is not copied into the app database. The saved review contains canonical semantic metadata, model fingerprints, change records and review decisions.
 
 ## Important MVP limitation
 
@@ -101,17 +139,3 @@ Other current limitations:
 8. Git / pull-request integration
 9. Approved changeset generation
 10. Controlled semantic-model promotion
-
-## Repository structure
-
-```text
-public/                 browser UI
-server/
-  server.js             HTTP/API and temporary ZIP processing
-  tmdlParser.js         parser adapter
-  compare.js            semantic diff engine
-  db.js                 SQLite review persistence
-samples/                synthetic reference/candidate TMDL
-tests/                  Node test suite
-data/                   local review database (ignored by Git)
-```
