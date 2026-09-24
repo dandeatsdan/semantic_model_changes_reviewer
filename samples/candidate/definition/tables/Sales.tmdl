@@ -1,0 +1,34 @@
+table Sales
+    column 'Order ID'
+        dataType: int64
+        sourceColumn: OrderID
+        summarizeBy: none
+
+    column Amount
+        dataType: decimal
+        sourceColumn: Amount
+        formatString: "£#,0.0"
+        summarizeBy: sum
+
+    column Discount
+        dataType: decimal
+        sourceColumn: Discount
+        formatString: "£#,0.00"
+        summarizeBy: sum
+
+    column Region
+        dataType: string
+        sourceColumn: Region
+        summarizeBy: none
+
+    measure 'Total Sales' = SUM(Sales[Amount])
+        formatString: "£#,0.00"
+        displayFolder: Core
+
+    measure 'Net Sales' = [Total Sales] - SUM(Sales[Discount]) - [Returns]
+        formatString: "£#,0.00"
+        displayFolder: Core
+
+    measure Returns = SUM(Sales[Discount]) * 0.25
+        formatString: "£#,0.00"
+        displayFolder: Adjustments
