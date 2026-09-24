@@ -1,0 +1,6 @@
+table Date
+    column Date
+        dataType: dateTime
+        sourceColumn: Date
+        formatString: "dd mmm yyyy"
+        summarizeBy: none
