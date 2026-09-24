@@ -121,6 +121,12 @@ export function createStore(dbPath) {
       db.prepare(`UPDATE reviews SET status='Finalised', finalised_at=?, updated_at=? WHERE id=?`).run(now, now, id)
       return this.get(id)
     },
+    delete(id) {
+      const existing = db.prepare('SELECT id FROM reviews WHERE id = ?').get(id)
+      if (!existing) return false
+      db.prepare('DELETE FROM reviews WHERE id = ?').run(id)
+      return true
+    },
     close() { db.close() }
   }
 }
