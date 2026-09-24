@@ -619,7 +619,7 @@ async function renderReviews() {
       <div class="card">
         ${reviews.length ? `
           <table class="review-table">
-            <thead><tr><th>Review</th><th>Status</th><th>Models</th><th>Progress</th><th>Updated</th></tr></thead>
+            <thead><tr><th>Review</th><th>Status</th><th>Models</th><th>Progress</th><th>Updated</th><th class="action-col">Delete</th></tr></thead>
             <tbody>
               ${reviews.map(r => `
                 <tr data-id="${r.id}" style="cursor:pointer">
@@ -628,6 +628,13 @@ async function renderReviews() {
                   <td>${esc(r.reference.name)} → ${esc(r.candidate.name)}</td>
                   <td>${r.summary.Approved + r.summary.Rejected}/${r.summary.total} resolved</td>
                   <td>${new Date(r.updatedAt).toLocaleString()}</td>
+                  <td class="action-col">
+                    <button class="icon-button delete-review" data-delete-id="${r.id}" data-delete-name="${esc(r.name)}" title="Delete review" aria-label="Delete ${esc(r.name)}">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm-2 6h10l-.7 11H7.7L7 9Zm3 2v7h2v-7h-2Zm4 0v7h2v-7h-2Z"></path>
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
@@ -641,6 +648,23 @@ async function renderReviews() {
         current = await api('/api/reviews/' + encodeURIComponent(row.dataset.id))
         selectedId = current.changes[0]?.id
         renderReview()
+      }
+    })
+
+    app.querySelectorAll('.delete-review').forEach(button => {
+      button.onclick = async event => {
+        event.stopPropagation()
+        const id = button.dataset.deleteId
+        const name = button.dataset.deleteName || id
+        if (!confirm(`Delete saved review "${name}"? This permanently removes its saved decisions and comments from the local review database.`)) return
+
+        try {
+          await api('/api/reviews/' + encodeURIComponent(id), { method: 'DELETE' })
+          toast('Review deleted')
+          renderReviews()
+        } catch (e) {
+          toast(e.message)
+        }
       }
     })
   } catch (e) {
