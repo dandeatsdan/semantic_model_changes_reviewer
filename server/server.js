@@ -142,6 +142,10 @@ async function api(req, res, url) {
     const review = store.get(decodeURIComponent(reviewMatch[1]))
     return review ? send(res,200,review) : send(res,404,{error:'Review not found'})
   }
+  if (req.method === 'DELETE' && reviewMatch) {
+    const deleted = store.delete(decodeURIComponent(reviewMatch[1]))
+    return deleted ? send(res,200,{deleted:true}) : send(res,404,{error:'Review not found'})
+  }
 
   const changeMatch = url.pathname.match(/^\/api\/reviews\/([^/]+)\/changes\/([^/]+)$/)
   if (req.method === 'PATCH' && changeMatch) {
