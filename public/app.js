@@ -236,6 +236,26 @@ async function startReview() {
   }
 }
 
+function summariseChanges(changes) {
+  const summary = {
+    total: changes.length,
+    Added: 0,
+    Modified: 0,
+    Removed: 0,
+    Approved: 0,
+    Rejected: 0,
+    'Needs Review': 0,
+    Unreviewed: 0
+  }
+
+  for (const change of changes) {
+    summary[change.changeType] = (summary[change.changeType] ?? 0) + 1
+    summary[change.reviewStatus] = (summary[change.reviewStatus] ?? 0) + 1
+  }
+
+  return summary
+}
+
 function kpis(s) {
   const arr = [
     ['Total', s.total],
@@ -247,9 +267,59 @@ function kpis(s) {
     ['Needs review', s['Needs Review']],
     ['Unreviewed', s.Unreviewed]
   ]
-  return `<div class="kpis">${arr.map(([l,v]) =>
+  return `<div class="kpis" id="kpiStrip">${arr.map(([l,v]) =>
     `<div class="kpi"><div class="label">${l}</div><div class="value">${v ?? 0}</div></div>`
   ).join('')}</div>`
+}
+
+function formatDaxForDisplay(expression) {
+  const source = String(expression ?? '').replace(/\r/g, '').trim()
+  if (!source) return ''
+
+  // Preserve author-supplied line breaks. For single-line expressions, add
+  // display-only line breaks after argument separators while respecting strings.
+  if (source.includes('\n')) return source
+
+  let output = ''
+  let depth = 0
+  let inString = false
+
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]
+
+    if (ch === '"') {
+      if (inString && source[i + 1] === '"') {
+        output += '""'
+        i++
+        continue
+      }
+      inString = !inString
+      output += ch
+      continue
+    }
+
+    if (!inString && ch === '(') {
+      depth++
+      output += ch
+      continue
+    }
+
+    if (!inString && ch === ')') {
+      depth = Math.max(0, depth - 1)
+      output += ch
+      continue
+    }
+
+    if (!inString && ch === ',' && depth > 0) {
+      output += ',\n' + '  '.repeat(Math.min(depth, 8))
+      while (source[i + 1] === ' ') i++
+      continue
+    }
+
+    output += ch
+  }
+
+  return output
 }
 
 function renderReview() {
@@ -287,11 +357,17 @@ function renderReview() {
       </div>
       <div class="grow"></div>
       <input id="search" type="search" placeholder="Search changes…">
-      <select id="typeFilter">
+      <select id="typeFilter" title="Object type">
         <option>All types</option>
         ${[...new Set(current.changes.map(c => c.objectType))].map(x => `<option>${x}</option>`).join('')}
       </select>
-      <select id="statusFilter">
+      <select id="changeFilter" title="Change type">
+        <option>All changes</option>
+        <option>Added</option>
+        <option>Modified</option>
+        <option>Removed</option>
+      </select>
+      <select id="statusFilter" title="Review status">
         <option>All statuses</option>
         <option>Unreviewed</option>
         <option>Needs Review</option>
@@ -315,24 +391,41 @@ function renderReview() {
   document.querySelector('#exportJson').onclick = () => download('json')
   document.querySelector('#exportCsv').onclick = () => download('csv')
   document.querySelector('#exportHtml').onclick = () => download('html')
-  ;['search','typeFilter','statusFilter'].forEach(id => {
-    document.querySelector('#' + id).oninput = renderChangeList
+  document.querySelector('#search').oninput = renderChangeList
+  ;['typeFilter','changeFilter','statusFilter'].forEach(id => {
+    document.querySelector('#' + id).oninput = renderFilteredState
   })
 
-  renderChangeList()
+  renderFilteredState()
   renderDetail(selected)
 }
 
-function filtered() {
-  const q = (document.querySelector('#search')?.value || '').toLowerCase()
+function filtered(includeSearch = true) {
+  const q = includeSearch ? (document.querySelector('#search')?.value || '').toLowerCase() : ''
   const t = document.querySelector('#typeFilter')?.value
+  const ch = document.querySelector('#changeFilter')?.value
   const s = document.querySelector('#statusFilter')?.value
 
   return current.changes.filter(c =>
     (!q || c.objectPath.toLowerCase().includes(q)) &&
     (!t || t === 'All types' || c.objectType === t) &&
+    (!ch || ch === 'All changes' || c.changeType === ch) &&
     (!s || s === 'All statuses' || c.reviewStatus === s)
   )
+}
+
+function renderFilteredState() {
+  renderKpis()
+  renderChangeList()
+}
+
+function renderKpis() {
+  const existing = document.querySelector('#kpiStrip')
+  if (!existing) return
+
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = kpis(summariseChanges(filtered(false)))
+  existing.replaceWith(wrapper.firstElementChild)
 }
 
 function renderChangeList() {
@@ -352,6 +445,14 @@ function renderChangeList() {
       </div>
     </div>
   `).join('') : '<div class="muted" style="padding:1rem">No matching changes.</div>'
+
+  if (!rows.length) {
+    selectedId = null
+    renderDetail(null)
+  } else if (!rows.some(c => c.id === selectedId)) {
+    selectedId = rows[0].id
+    renderDetail(rows[0])
+  }
 
   el.querySelectorAll('.change-row').forEach(row => {
     row.onclick = () => {
@@ -378,23 +479,57 @@ function renderDetail(c) {
         <div class="h">Property</div>
         <div class="h">Reference</div>
         <div class="h">Candidate</div>
-        ${c.propertyChanges.map(p => `
-          <div class="prop">${esc(p.property)}</div>
-          <div class="code">${esc(p.reference)}</div>
-          <div class="code">${esc(p.candidate)}</div>
-        `).join('')}
+        ${c.propertyChanges.map(p => {
+          const isDax = c.objectType === 'Measure' && p.property === 'expression'
+          const referenceValue = isDax ? formatDaxForDisplay(p.reference) : p.reference
+          const candidateValue = isDax ? formatDaxForDisplay(p.candidate) : p.candidate
+          const codeClass = isDax ? 'code dax-code' : 'code'
+          return `
+            <div class="prop">${esc(p.property)}</div>
+            <div class="${codeClass}">${esc(referenceValue)}</div>
+            <div class="${codeClass}">${esc(candidateValue)}</div>
+          `
+        }).join('')}
       </div>
     `
   } else {
     const obj = c.changeType === 'Added' ? c.candidateObject : c.referenceObject
-    diffs = `
-      <div class="diff-grid">
-        <div class="h">Object</div>
-        <div class="h" style="grid-column:span 2">${c.changeType === 'Added' ? 'Candidate' : 'Reference'}</div>
-        <div class="prop">Definition</div>
-        <div class="code" style="grid-column:span 2">${esc(JSON.stringify(obj, null, 2))}</div>
-      </div>
-    `
+    const sideLabel = c.changeType === 'Added' ? 'Candidate' : 'Reference'
+
+    if (c.objectType === 'Measure' && obj) {
+      const metadata = [
+        ['Format string', obj.formatString],
+        ['Display folder', obj.displayFolder],
+        ['Description', obj.description],
+        ['Hidden', obj.hidden ? 'true' : 'false']
+      ].filter(([, value]) => value !== undefined && value !== null && value !== '')
+
+      diffs = `
+        <div class="measure-block">
+          <div class="measure-block-head">
+            <span>DAX expression</span>
+            <span class="small muted">${sideLabel}</span>
+          </div>
+          <pre class="code dax-code">${esc(formatDaxForDisplay(obj.expression))}</pre>
+          ${metadata.length ? `
+            <div class="measure-meta">
+              ${metadata.map(([label, value]) => `
+                <div><span class="small muted">${esc(label)}</span><br><b>${esc(value)}</b></div>
+              `).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `
+    } else {
+      diffs = `
+        <div class="diff-grid">
+          <div class="h">Object</div>
+          <div class="h" style="grid-column:span 2">${sideLabel}</div>
+          <div class="prop">Definition</div>
+          <div class="code" style="grid-column:span 2">${esc(JSON.stringify(obj, null, 2))}</div>
+        </div>
+      `
+    }
   }
 
   el.innerHTML = `
