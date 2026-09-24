@@ -1,0 +1,28 @@
+table Sales
+    column 'Order ID'
+        dataType: int64
+        sourceColumn: OrderID
+        summarizeBy: none
+
+    column Amount
+        dataType: decimal
+        sourceColumn: Amount
+        formatString: "£#,0.00"
+        summarizeBy: sum
+
+    column Discount
+        dataType: decimal
+        sourceColumn: Discount
+        formatString: "£#,0.00"
+        summarizeBy: sum
+
+    measure 'Total Sales' = SUM(Sales[Amount])
+        formatString: "£#,0.00"
+        displayFolder: Core
+
+    measure 'Net Sales' = [Total Sales] - SUM(Sales[Discount])
+        formatString: "£#,0.00"
+        displayFolder: Core
+
+    measure 'Legacy Margin' = [Net Sales] * 0.10
+        formatString: "£#,0.00"
