@@ -1,54 +1,516 @@
 const app = document.querySelector('#app')
-const navNew = document.querySelector('#navNew'), navReviews = document.querySelector('#navReviews')
-let reference = null, candidate = null, current = null, selectedId = null
+const navNew = document.querySelector('#navNew')
+const navReviews = document.querySelector('#navReviews')
 
-const esc = v => String(v ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
-const cls = v => String(v).replaceAll(' ','')
-function toast(msg){ const e=document.createElement('div');e.className='toast';e.textContent=msg;document.body.append(e);setTimeout(()=>e.remove(),1800)}
-async function api(url, opts={}){ const r=await fetch(url,opts); const ct=r.headers.get('content-type')||''; const data=ct.includes('json')?await r.json():await r.text(); if(!r.ok) throw new Error(data.error||data||r.statusText); return data }
-function setTab(tab){navNew.classList.toggle('active',tab==='new');navReviews.classList.toggle('active',tab==='reviews')}
+let reference = null
+let candidate = null
+let current = null
+let selectedId = null
 
-navNew.onclick=()=>{setTab('new');renderNew()};navReviews.onclick=()=>{setTab('reviews');renderReviews()}
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
+const cls = v => String(v).replaceAll(' ', '')
 
-function renderNew(){
-  current=null;selectedId=null;reference=null;candidate=null
-  app.innerHTML=`<div class="section-head"><div><h1>Start a semantic model review</h1><div class="muted">Upload a reference and candidate PBIP/TMDL ZIP. Uploaded files are processed temporarily; the saved review stores canonical metadata and decisions.</div></div></div>
-  <div class="card" style="margin-bottom:1rem"><label class="small muted">Review name</label><input id="reviewName" type="text" style="width:100%;margin-top:.35rem" placeholder="e.g. Group Actuals — September enhancement review"></div>
-  <div class="upload-grid"><div class="card upload-card" id="refCard"><h2>Reference model</h2><label class="file">Choose reference ZIP<input id="refInput" type="file" accept=".zip"></label><div id="refMeta" class="small muted" style="margin-top:.7rem">No model loaded</div></div>
-  <div class="card upload-card" id="candCard"><h2>Candidate model</h2><label class="file">Choose candidate ZIP<input id="candInput" type="file" accept=".zip"></label><div id="candMeta" class="small muted" style="margin-top:.7rem">No model loaded</div></div></div>
-  <div style="margin-top:1rem;display:flex;justify-content:flex-end"><button id="startBtn" class="primary" disabled>Compare & start review</button></div>`
-  refInput.onchange=()=>loadModel(refInput.files[0],'reference');candInput.onchange=()=>loadModel(candInput.files[0],'candidate');startBtn.onclick=startReview
+function toast(msg) {
+  const e = document.createElement('div')
+  e.className = 'toast'
+  e.textContent = msg
+  document.body.append(e)
+  setTimeout(() => e.remove(), 2200)
 }
 
-async function loadModel(file, which){
-  if(!file)return; const meta=document.querySelector(which==='reference'?'#refMeta':'#candMeta');meta.textContent='Reading model…'
-  try{const model=await api('/api/models/parse',{method:'POST',headers:{'Content-Type':'application/zip','X-File-Name':file.name},body:file});model._fileName=file.name;if(which==='reference')reference=model;else candidate=model;meta.innerHTML=`<b>${esc(file.name)}</b><br>${model.tables.length} tables · ${model.tables.reduce((n,t)=>n+t.columns.length,0)} columns · ${model.tables.reduce((n,t)=>n+t.measures.length,0)} measures<br>Fingerprint ${model.fingerprint.slice(0,12)}…`;meta.closest('.upload-card').classList.add('ready');document.querySelector('#startBtn').disabled=!(reference&&candidate)}catch(e){meta.textContent=e.message;toast(e.message)}
+async function api(url, opts = {}) {
+  const r = await fetch(url, opts)
+  const ct = r.headers.get('content-type') || ''
+  const data = ct.includes('json') ? await r.json() : await r.text()
+  if (!r.ok) throw new Error(data.error || data || r.statusText)
+  return data
 }
 
-async function startReview(){
-  try{const name=document.querySelector('#reviewName').value.trim()||`${reference._fileName} vs ${candidate._fileName}`;current=await api('/api/reviews',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,reference,candidate,referenceName:reference._fileName,candidateName:candidate._fileName})});selectedId=current.changes[0]?.id;renderReview()}catch(e){toast(e.message)}
+function setTab(tab) {
+  navNew.classList.toggle('active', tab === 'new')
+  navReviews.classList.toggle('active', tab === 'reviews')
 }
 
-function kpis(s){ const arr=[['Total',s.total],['Added',s.Added],['Modified',s.Modified],['Removed',s.Removed],['Approved',s.Approved],['Rejected',s.Rejected],['Needs review',s['Needs Review']],['Unreviewed',s.Unreviewed]];return `<div class="kpis">${arr.map(([l,v])=>`<div class="kpi"><div class="label">${l}</div><div class="value">${v??0}</div></div>`).join('')}</div>` }
+navNew.onclick = () => { setTab('new'); renderNew() }
+navReviews.onclick = () => { setTab('reviews'); renderReviews() }
 
-function renderReview(){
-  if(!current)return; const selected=current.changes.find(c=>c.id===selectedId)||current.changes[0];selectedId=selected?.id
-  app.innerHTML=`<div class="section-head"><div><h1>${esc(current.name)}</h1><div class="muted">${esc(current.id)} · ${esc(current.status)} · autosaved decisions</div></div><div class="row"><button class="secondary" id="exportJson">Export JSON</button><button class="secondary" id="exportCsv">Export CSV</button><button class="secondary" id="exportHtml">Export report</button><button class="primary" id="finalise">Finalise review</button></div></div>
-  ${kpis(current.summary)}
-  <div class="panel row" style="margin:1rem 0;align-items:flex-end"><div><div class="small muted">Reference</div><b>${esc(current.reference.name)}</b><div class="small muted">${current.reference.fingerprint.slice(0,16)}…</div></div><div style="font-size:20px;color:var(--muted)">→</div><div><div class="small muted">Candidate</div><b>${esc(current.candidate.name)}</b><div class="small muted">${current.candidate.fingerprint.slice(0,16)}…</div></div><div class="grow"></div><input id="search" type="search" placeholder="Search changes…"><select id="typeFilter"><option>All types</option>${[...new Set(current.changes.map(c=>c.objectType))].map(x=>`<option>${x}</option>`).join('')}</select><select id="statusFilter"><option>All statuses</option><option>Unreviewed</option><option>Needs Review</option><option>Approved</option><option>Rejected</option></select></div>
-  <div class="review-layout"><div class="card change-list" id="changeList"></div><div class="card" id="detail"></div></div>`
-  const unresolved=(current.summary.Unreviewed||0)+(current.summary['Needs Review']||0);finalise.disabled=current.status==='Finalised'||unresolved>0;finalise.title=unresolved?`${unresolved} changes are unresolved`:'';finalise.onclick=finaliseReview
-  exportJson.onclick=()=>download('json');exportCsv.onclick=()=>download('csv');exportHtml.onclick=()=>download('html')
-  ;['search','typeFilter','statusFilter'].forEach(id=>document.querySelector('#'+id).oninput=renderChangeList);renderChangeList();renderDetail(selected)
+function renderNew() {
+  current = null
+  selectedId = null
+  reference = null
+  candidate = null
+
+  app.innerHTML = `
+    <div class="section-head">
+      <div>
+        <h1>Start a semantic model review</h1>
+        <div class="muted">
+          Select the root PBIP project folder for the reference and candidate models.
+          The app reads only the semantic model TMDL definition and ignores report, cache and editor files.
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:1rem">
+      <label class="small muted">Review name</label>
+      <input id="reviewName" type="text" style="width:100%;margin-top:.35rem"
+        placeholder="e.g. Group Actuals — September enhancement review">
+    </div>
+
+    <div class="upload-grid">
+      ${modelPicker('ref', 'Reference model')}
+      ${modelPicker('cand', 'Candidate model')}
+    </div>
+
+    <div class="panel small muted" style="margin-top:1rem">
+      <b>Expected PBIP structure</b><br>
+      Project root → <code>&lt;name&gt;.SemanticModel</code> → <code>definition</code> → <code>*.tmdl</code>.
+      You can select the whole PBIP project folder, the <code>.SemanticModel</code> folder, or the
+      <code>definition</code> folder itself. ZIP remains available as a fallback.
+    </div>
+
+    <div style="margin-top:1rem;display:flex;justify-content:flex-end">
+      <button id="startBtn" class="primary" disabled>Compare & start review</button>
+    </div>
+  `
+
+  bindPicker('ref', 'reference')
+  bindPicker('cand', 'candidate')
+  document.querySelector('#startBtn').onclick = startReview
 }
 
-function filtered(){const q=(document.querySelector('#search')?.value||'').toLowerCase();const t=document.querySelector('#typeFilter')?.value;const s=document.querySelector('#statusFilter')?.value;return current.changes.filter(c=>(!q||c.objectPath.toLowerCase().includes(q))&&(!t||t==='All types'||c.objectType===t)&&(!s||s==='All statuses'||c.reviewStatus===s))}
-function renderChangeList(){const el=document.querySelector('#changeList');if(!el)return;const rows=filtered();el.innerHTML=rows.length?rows.map(c=>`<div class="change-row ${c.id===selectedId?'active':''}" data-id="${c.id}"><div class="row" style="justify-content:space-between"><b>${esc(c.objectName)}</b><span class="badge ${cls(c.changeType)}">${c.changeType}</span></div><div class="small muted">${esc(c.objectType)} · ${esc(c.objectPath)}</div><div style="margin-top:.35rem"><span class="badge ${cls(c.reviewStatus)}">${esc(c.reviewStatus)}</span></div></div>`).join(''):'<div class="muted" style="padding:1rem">No matching changes.</div>';el.querySelectorAll('.change-row').forEach(r=>r.onclick=()=>{selectedId=r.dataset.id;renderChangeList();renderDetail(current.changes.find(c=>c.id===selectedId))})}
-function renderDetail(c){const el=document.querySelector('#detail');if(!c){el.innerHTML='<div class="muted">No changes detected.</div>';return}const readonly=current.status==='Finalised';let diffs='';if(c.changeType==='Modified'){diffs=`<div class="diff-grid"><div class="h">Property</div><div class="h">Reference</div><div class="h">Candidate</div>${c.propertyChanges.map(p=>`<div class="prop">${esc(p.property)}</div><div class="code">${esc(p.reference)}</div><div class="code">${esc(p.candidate)}</div>`).join('')}</div>`}else{const obj=c.changeType==='Added'?c.candidateObject:c.referenceObject;diffs=`<div class="diff-grid"><div class="h">Object</div><div class="h" style="grid-column:span 2">${c.changeType==='Added'?'Candidate':'Reference'}</div><div class="prop">Definition</div><div class="code" style="grid-column:span 2">${esc(JSON.stringify(obj,null,2))}</div></div>`}el.innerHTML=`<div class="detail-head"><div><div class="small muted">${esc(c.objectType)}</div><h2 style="font-size:1.25rem">${esc(c.objectPath)}</h2></div><span class="badge ${cls(c.changeType)}">${c.changeType}</span></div>${diffs}<hr style="border:0;border-top:1px solid var(--surface2);margin:1rem 0"><div class="small muted" style="margin-bottom:.45rem">Review decision</div><div class="status-actions">${['Approved','Rejected','Needs Review','Unreviewed'].map(s=>`<button class="secondary ${c.reviewStatus===s?'selected':''}" data-status="${s}" ${readonly?'disabled':''}>${s}</button>`).join('')}</div><label class="small muted" style="display:block;margin-top:1rem">Reviewer comment</label><textarea id="comment" ${readonly?'disabled':''}>${esc(c.reviewComment)}</textarea><div style="display:flex;justify-content:flex-end;margin-top:.5rem"><button class="primary" id="saveDecision" ${readonly?'disabled':''}>Save decision</button></div>${c.reviewedAt?`<div class="small muted" style="margin-top:.6rem">Last reviewed ${new Date(c.reviewedAt).toLocaleString()}</div>`:''}`;let status=c.reviewStatus;el.querySelectorAll('[data-status]').forEach(b=>b.onclick=()=>{status=b.dataset.status;el.querySelectorAll('[data-status]').forEach(x=>x.classList.toggle('selected',x.dataset.status===status))});document.querySelector('#saveDecision').onclick=()=>saveDecision(c,status,document.querySelector('#comment').value)}
-async function saveDecision(c,status,comment){try{current=await api(`/api/reviews/${encodeURIComponent(current.id)}/changes/${c.id}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({status,comment})});selectedId=c.id;renderReview();toast('Decision saved')}catch(e){toast(e.message)}}
-async function finaliseReview(){if(!confirm('Finalise this review? A finalised review becomes read-only.'))return;try{current=await api(`/api/reviews/${encodeURIComponent(current.id)}/finalise`,{method:'POST'});renderReview();toast('Review finalised')}catch(e){toast(e.message)}}
-function download(fmt){window.location=`/api/reviews/${encodeURIComponent(current.id)}/export?format=${fmt}`}
+function modelPicker(prefix, title) {
+  return `
+    <div class="card upload-card" id="${prefix}Card">
+      <h2>${title}</h2>
+      <label class="file">
+        Choose PBIP project folder
+        <input id="${prefix}Folder" type="file" webkitdirectory directory multiple>
+      </label>
+      <div class="or-separator"><span>or</span></div>
+      <label class="file file-compact">
+        Choose ZIP
+        <input id="${prefix}Zip" type="file" accept=".zip">
+      </label>
+      <div id="${prefix}Meta" class="small muted" style="margin-top:.7rem">No model loaded</div>
+    </div>
+  `
+}
 
-async function renderReviews(){app.innerHTML='<h1>Saved reviews</h1><div class="muted" style="margin-bottom:1rem">Open an in-progress review or inspect a finalised review.</div><div class="card">Loading…</div>';try{const reviews=await api('/api/reviews');app.innerHTML=`<div class="section-head"><div><h1>Saved reviews</h1><div class="muted">Persistent review workspaces</div></div></div><div class="card">${reviews.length?`<table class="review-table"><thead><tr><th>Review</th><th>Status</th><th>Models</th><th>Progress</th><th>Updated</th></tr></thead><tbody>${reviews.map(r=>`<tr data-id="${r.id}" style="cursor:pointer"><td><b>${esc(r.name)}</b><div class="small muted">${r.id}</div></td><td>${esc(r.status)}</td><td>${esc(r.reference.name)} → ${esc(r.candidate.name)}</td><td>${r.summary.Approved+r.summary.Rejected}/${r.summary.total} resolved</td><td>${new Date(r.updatedAt).toLocaleString()}</td></tr>`).join('')}</tbody></table>`:'<div class="muted">No saved reviews yet.</div>'}</div>`;app.querySelectorAll('tr[data-id]').forEach(r=>r.onclick=async()=>{current=await api('/api/reviews/'+encodeURIComponent(r.dataset.id));selectedId=current.changes[0]?.id;renderReview()})}catch(e){app.innerHTML=`<div class="card">${esc(e.message)}</div>`}}
+function bindPicker(prefix, which) {
+  document.querySelector('#' + prefix + 'Folder').onchange = e => loadFolder(e.target.files, which)
+  document.querySelector('#' + prefix + 'Zip').onchange = e => loadZip(e.target.files[0], which)
+}
+
+function setModel(which, model, sourceName) {
+  model._sourceName = sourceName
+  if (which === 'reference') reference = model
+  else candidate = model
+
+  const prefix = which === 'reference' ? 'ref' : 'cand'
+  const meta = document.querySelector('#' + prefix + 'Meta')
+  const tableCount = model.tables.length
+  const columnCount = model.tables.reduce((n, t) => n + t.columns.length, 0)
+  const measureCount = model.tables.reduce((n, t) => n + t.measures.length, 0)
+
+  meta.innerHTML = `
+    <b>${esc(sourceName)}</b><br>
+    ${tableCount} tables · ${columnCount} columns · ${measureCount} measures<br>
+    Fingerprint ${model.fingerprint.slice(0, 12)}…
+  `
+  meta.closest('.upload-card').classList.add('ready')
+  document.querySelector('#startBtn').disabled = !(reference && candidate)
+}
+
+function selectedRootName(files) {
+  const first = files[0]
+  const relative = first?.webkitRelativePath || first?.name || 'PBIP Project'
+  return relative.split('/')[0] || 'PBIP Project'
+}
+
+function semanticDefinitionFiles(files) {
+  const all = Array.from(files)
+  const normal = file => (file.webkitRelativePath || file.name || '').replaceAll('\\', '/')
+
+  const tmdl = all.filter(file => {
+    const p = normal(file)
+    if (!p.toLowerCase().endsWith('.tmdl')) return false
+    const lower = p.toLowerCase()
+    return lower.includes('.semanticmodel/definition/') ||
+      lower.startsWith('definition/') ||
+      lower.includes('/definition/')
+  })
+
+  if (!tmdl.length) {
+    const hasBim = all.some(file => normal(file).toLowerCase().endsWith('/model.bim') || normal(file).toLowerCase() === 'model.bim')
+    if (hasBim) {
+      throw new Error('This PBIP uses model.bim (TMSL). Save or upgrade the semantic model using TMDL format so a definition folder is created.')
+    }
+    throw new Error('No TMDL semantic model definition was found. Select the PBIP project root, its .SemanticModel folder, or its definition folder.')
+  }
+
+  const semanticRoots = new Set()
+  for (const file of tmdl) {
+    const p = normal(file)
+    const match = p.match(/^(.*?\.SemanticModel)\/definition\//i)
+    if (match) semanticRoots.add(match[1])
+  }
+  if (semanticRoots.size > 1) {
+    throw new Error('More than one SemanticModel definition was found in this folder. Select the specific .SemanticModel folder you want to review.')
+  }
+
+  return tmdl
+}
+
+async function loadFolder(fileList, which) {
+  if (!fileList?.length) return
+  const prefix = which === 'reference' ? 'ref' : 'cand'
+  const meta = document.querySelector('#' + prefix + 'Meta')
+  meta.textContent = 'Reading PBIP folder…'
+
+  try {
+    const files = semanticDefinitionFiles(fileList)
+    const rootName = selectedRootName(Array.from(fileList))
+    const payloadFiles = await Promise.all(files.map(async file => ({
+      path: (file.webkitRelativePath || file.name).replaceAll('\\', '/'),
+      content: await file.text()
+    })))
+
+    const model = await api('/api/models/parse-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectName: rootName,
+        files: payloadFiles
+      })
+    })
+
+    const sourceName = `${rootName} (PBIP folder)`
+    setModel(which, model, sourceName)
+  } catch (e) {
+    meta.textContent = e.message
+    toast(e.message)
+  }
+}
+
+async function loadZip(file, which) {
+  if (!file) return
+  const prefix = which === 'reference' ? 'ref' : 'cand'
+  const meta = document.querySelector('#' + prefix + 'Meta')
+  meta.textContent = 'Reading ZIP…'
+
+  try {
+    const model = await api('/api/models/parse', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/zip', 'X-File-Name': file.name },
+      body: file
+    })
+    setModel(which, model, file.name)
+  } catch (e) {
+    meta.textContent = e.message
+    toast(e.message)
+  }
+}
+
+async function startReview() {
+  try {
+    const name = document.querySelector('#reviewName').value.trim() ||
+      `${reference._sourceName} vs ${candidate._sourceName}`
+
+    current = await api('/api/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type':'application/json' },
+      body: JSON.stringify({
+        name,
+        reference,
+        candidate,
+        referenceName: reference._sourceName,
+        candidateName: candidate._sourceName
+      })
+    })
+
+    selectedId = current.changes[0]?.id
+    renderReview()
+  } catch (e) {
+    toast(e.message)
+  }
+}
+
+function kpis(s) {
+  const arr = [
+    ['Total', s.total],
+    ['Added', s.Added],
+    ['Modified', s.Modified],
+    ['Removed', s.Removed],
+    ['Approved', s.Approved],
+    ['Rejected', s.Rejected],
+    ['Needs review', s['Needs Review']],
+    ['Unreviewed', s.Unreviewed]
+  ]
+  return `<div class="kpis">${arr.map(([l,v]) =>
+    `<div class="kpi"><div class="label">${l}</div><div class="value">${v ?? 0}</div></div>`
+  ).join('')}</div>`
+}
+
+function renderReview() {
+  if (!current) return
+  const selected = current.changes.find(c => c.id === selectedId) || current.changes[0]
+  selectedId = selected?.id
+
+  app.innerHTML = `
+    <div class="section-head">
+      <div>
+        <h1>${esc(current.name)}</h1>
+        <div class="muted">${esc(current.id)} · ${esc(current.status)} · autosaved decisions</div>
+      </div>
+      <div class="row">
+        <button class="secondary" id="exportJson">Export JSON</button>
+        <button class="secondary" id="exportCsv">Export CSV</button>
+        <button class="secondary" id="exportHtml">Export report</button>
+        <button class="primary" id="finalise">Finalise review</button>
+      </div>
+    </div>
+
+    ${kpis(current.summary)}
+
+    <div class="panel row" style="margin:1rem 0;align-items:flex-end">
+      <div>
+        <div class="small muted">Reference</div>
+        <b>${esc(current.reference.name)}</b>
+        <div class="small muted">${current.reference.fingerprint.slice(0,16)}…</div>
+      </div>
+      <div style="font-size:20px;color:var(--muted)">→</div>
+      <div>
+        <div class="small muted">Candidate</div>
+        <b>${esc(current.candidate.name)}</b>
+        <div class="small muted">${current.candidate.fingerprint.slice(0,16)}…</div>
+      </div>
+      <div class="grow"></div>
+      <input id="search" type="search" placeholder="Search changes…">
+      <select id="typeFilter">
+        <option>All types</option>
+        ${[...new Set(current.changes.map(c => c.objectType))].map(x => `<option>${x}</option>`).join('')}
+      </select>
+      <select id="statusFilter">
+        <option>All statuses</option>
+        <option>Unreviewed</option>
+        <option>Needs Review</option>
+        <option>Approved</option>
+        <option>Rejected</option>
+      </select>
+    </div>
+
+    <div class="review-layout">
+      <div class="card change-list" id="changeList"></div>
+      <div class="card" id="detail"></div>
+    </div>
+  `
+
+  const unresolved = (current.summary.Unreviewed || 0) + (current.summary['Needs Review'] || 0)
+  const finalise = document.querySelector('#finalise')
+  finalise.disabled = current.status === 'Finalised' || unresolved > 0
+  finalise.title = unresolved ? `${unresolved} changes are unresolved` : ''
+  finalise.onclick = finaliseReview
+
+  document.querySelector('#exportJson').onclick = () => download('json')
+  document.querySelector('#exportCsv').onclick = () => download('csv')
+  document.querySelector('#exportHtml').onclick = () => download('html')
+  ;['search','typeFilter','statusFilter'].forEach(id => {
+    document.querySelector('#' + id).oninput = renderChangeList
+  })
+
+  renderChangeList()
+  renderDetail(selected)
+}
+
+function filtered() {
+  const q = (document.querySelector('#search')?.value || '').toLowerCase()
+  const t = document.querySelector('#typeFilter')?.value
+  const s = document.querySelector('#statusFilter')?.value
+
+  return current.changes.filter(c =>
+    (!q || c.objectPath.toLowerCase().includes(q)) &&
+    (!t || t === 'All types' || c.objectType === t) &&
+    (!s || s === 'All statuses' || c.reviewStatus === s)
+  )
+}
+
+function renderChangeList() {
+  const el = document.querySelector('#changeList')
+  if (!el) return
+  const rows = filtered()
+
+  el.innerHTML = rows.length ? rows.map(c => `
+    <div class="change-row ${c.id === selectedId ? 'active' : ''}" data-id="${c.id}">
+      <div class="row" style="justify-content:space-between">
+        <b>${esc(c.objectName)}</b>
+        <span class="badge ${cls(c.changeType)}">${c.changeType}</span>
+      </div>
+      <div class="small muted">${esc(c.objectType)} · ${esc(c.objectPath)}</div>
+      <div style="margin-top:.35rem">
+        <span class="badge ${cls(c.reviewStatus)}">${esc(c.reviewStatus)}</span>
+      </div>
+    </div>
+  `).join('') : '<div class="muted" style="padding:1rem">No matching changes.</div>'
+
+  el.querySelectorAll('.change-row').forEach(row => {
+    row.onclick = () => {
+      selectedId = row.dataset.id
+      renderChangeList()
+      renderDetail(current.changes.find(c => c.id === selectedId))
+    }
+  })
+}
+
+function renderDetail(c) {
+  const el = document.querySelector('#detail')
+  if (!c) {
+    el.innerHTML = '<div class="muted">No changes detected.</div>'
+    return
+  }
+
+  const readonly = current.status === 'Finalised'
+  let diffs = ''
+
+  if (c.changeType === 'Modified') {
+    diffs = `
+      <div class="diff-grid">
+        <div class="h">Property</div>
+        <div class="h">Reference</div>
+        <div class="h">Candidate</div>
+        ${c.propertyChanges.map(p => `
+          <div class="prop">${esc(p.property)}</div>
+          <div class="code">${esc(p.reference)}</div>
+          <div class="code">${esc(p.candidate)}</div>
+        `).join('')}
+      </div>
+    `
+  } else {
+    const obj = c.changeType === 'Added' ? c.candidateObject : c.referenceObject
+    diffs = `
+      <div class="diff-grid">
+        <div class="h">Object</div>
+        <div class="h" style="grid-column:span 2">${c.changeType === 'Added' ? 'Candidate' : 'Reference'}</div>
+        <div class="prop">Definition</div>
+        <div class="code" style="grid-column:span 2">${esc(JSON.stringify(obj, null, 2))}</div>
+      </div>
+    `
+  }
+
+  el.innerHTML = `
+    <div class="detail-head">
+      <div>
+        <div class="small muted">${esc(c.objectType)}</div>
+        <h2 style="font-size:1.25rem">${esc(c.objectPath)}</h2>
+      </div>
+      <span class="badge ${cls(c.changeType)}">${c.changeType}</span>
+    </div>
+
+    ${diffs}
+
+    <hr style="border:0;border-top:1px solid var(--surface2);margin:1rem 0">
+
+    <div class="small muted" style="margin-bottom:.45rem">Review decision</div>
+    <div class="status-actions">
+      ${['Approved','Rejected','Needs Review','Unreviewed'].map(s =>
+        `<button class="secondary ${c.reviewStatus === s ? 'selected' : ''}" data-status="${s}" ${readonly ? 'disabled' : ''}>${s}</button>`
+      ).join('')}
+    </div>
+
+    <label class="small muted" style="display:block;margin-top:1rem">Reviewer comment</label>
+    <textarea id="comment" ${readonly ? 'disabled' : ''}>${esc(c.reviewComment)}</textarea>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:.5rem">
+      <button class="primary" id="saveDecision" ${readonly ? 'disabled' : ''}>Save decision</button>
+    </div>
+
+    ${c.reviewedAt ? `<div class="small muted" style="margin-top:.6rem">Last reviewed ${new Date(c.reviewedAt).toLocaleString()}</div>` : ''}
+  `
+
+  let status = c.reviewStatus
+  el.querySelectorAll('[data-status]').forEach(button => {
+    button.onclick = () => {
+      status = button.dataset.status
+      el.querySelectorAll('[data-status]').forEach(x => x.classList.toggle('selected', x.dataset.status === status))
+    }
+  })
+
+  document.querySelector('#saveDecision').onclick = () =>
+    saveDecision(c, status, document.querySelector('#comment').value)
+}
+
+async function saveDecision(c, status, comment) {
+  try {
+    current = await api(`/api/reviews/${encodeURIComponent(current.id)}/changes/${c.id}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status,comment})
+    })
+    selectedId = c.id
+    renderReview()
+    toast('Decision saved')
+  } catch (e) {
+    toast(e.message)
+  }
+}
+
+async function finaliseReview() {
+  if (!confirm('Finalise this review? A finalised review becomes read-only.')) return
+  try {
+    current = await api(`/api/reviews/${encodeURIComponent(current.id)}/finalise`, {method:'POST'})
+    renderReview()
+    toast('Review finalised')
+  } catch (e) {
+    toast(e.message)
+  }
+}
+
+function download(fmt) {
+  window.location = `/api/reviews/${encodeURIComponent(current.id)}/export?format=${fmt}`
+}
+
+async function renderReviews() {
+  app.innerHTML = '<h1>Saved reviews</h1><div class="muted" style="margin-bottom:1rem">Open an in-progress review or inspect a finalised review.</div><div class="card">Loading…</div>'
+
+  try {
+    const reviews = await api('/api/reviews')
+    app.innerHTML = `
+      <div class="section-head">
+        <div>
+          <h1>Saved reviews</h1>
+          <div class="muted">Persistent review workspaces</div>
+        </div>
+      </div>
+      <div class="card">
+        ${reviews.length ? `
+          <table class="review-table">
+            <thead><tr><th>Review</th><th>Status</th><th>Models</th><th>Progress</th><th>Updated</th></tr></thead>
+            <tbody>
+              ${reviews.map(r => `
+                <tr data-id="${r.id}" style="cursor:pointer">
+                  <td><b>${esc(r.name)}</b><div class="small muted">${r.id}</div></td>
+                  <td>${esc(r.status)}</td>
+                  <td>${esc(r.reference.name)} → ${esc(r.candidate.name)}</td>
+                  <td>${r.summary.Approved + r.summary.Rejected}/${r.summary.total} resolved</td>
+                  <td>${new Date(r.updatedAt).toLocaleString()}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : '<div class="muted">No saved reviews yet.</div>'}
+      </div>
+    `
+
+    app.querySelectorAll('tr[data-id]').forEach(row => {
+      row.onclick = async () => {
+        current = await api('/api/reviews/' + encodeURIComponent(row.dataset.id))
+        selectedId = current.changes[0]?.id
+        renderReview()
+      }
+    })
+  } catch (e) {
+    app.innerHTML = `<div class="card">${esc(e.message)}</div>`
+  }
+}
 
 renderNew()
