@@ -4,30 +4,39 @@
 
 The application is a semantic change-control workspace for Power BI models. It separates model ingestion from comparison and review governance so the parser can be replaced without disturbing persisted review logic.
 
-## Current vertical slice
+## PBIP ingestion
+
+The primary input is now the actual Power BI Project folder rather than a ZIP.
 
 ```text
-Reference PBIP/TMDL ZIP ─┐
-                         ├─ Temporary extraction ─ TMDL adapter ─ Canonical snapshots
-Candidate PBIP/TMDL ZIP ─┘                                      │
-                                                                ▼
-                                                        Semantic diff engine
-                                                                │
-                                                                ▼
-                                                        Review workspace
-                                                                │
-                           ┌────────────────────────────────────┼─────────────────────┐
-                           ▼                                    ▼                     ▼
-                     SQLite persistence                  Resume review          Export/finalise
+Reference PBIP folder ─┐
+                       ├─ browser filters TMDL definition files ─ canonical model
+Candidate PBIP folder ─┘
+                                                               │
+                                                               ▼
+                                                       Semantic diff engine
+                                                               │
+                                                               ▼
+                                                       Review workspace
+                                                               │
+                          ┌────────────────────────────────────┼─────────────────────┐
+                          ▼                                    ▼                     ▼
+                    SQLite persistence                  Resume review          Export/finalise
 ```
 
-### Ingestion
+A standard PBIP root contains sibling `.Report` and `.SemanticModel` folders. The browser folder picker inspects relative paths and includes only files beneath:
 
-`server/server.js` accepts a raw ZIP upload, extracts it to a temporary directory, locates a `definition/` folder and removes the temporary files after parsing.
+`<name>.SemanticModel/definition/**/*.tmdl`
+
+The user may alternatively select the `.SemanticModel` folder or `definition` folder directly.
+
+Other PBIP files are not sent to the backend. This includes report definitions, `.pbip`, `.platform`, editor settings and local cache files.
+
+ZIP parsing remains as an optional fallback.
 
 ### Parser adapter
 
-`server/tmdlParser.js` currently implements a lightweight TMDL reader for tables, columns and measures. Its output is a canonical JavaScript object independent of file layout.
+`server/tmdlParser.js` accepts either filesystem TMDL files or browser-supplied path/content entries and maps them to the same canonical semantic model.
 
 Production target: replace this adapter with a .NET/TOM service using `Microsoft.AnalysisServices.Tabular.TmdlSerializer`. Nothing above the canonical snapshot contract should need to change.
 
@@ -46,7 +55,7 @@ Production target: replace this adapter with a .NET/TOM service using `Microsoft
 - review status and comment
 - review timestamp
 
-Uploaded source ZIPs are not retained.
+The original PBIP folders are not retained.
 
 ### Review lifecycle
 
