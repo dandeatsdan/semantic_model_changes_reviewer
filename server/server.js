@@ -109,6 +109,16 @@ function reviewHtml(review) {
 async function api(req, res, url) {
   if (req.method === 'GET' && url.pathname === '/api/health') return send(res,200,{ok:true})
 
+  if (req.method === 'GET' && url.pathname === '/api/models/sample') {
+    const kind = url.searchParams.get('kind')
+    if (!['reference','candidate'].includes(kind)) {
+      return send(res,400,{error:'Sample kind must be reference or candidate'})
+    }
+    const model = await parseTmdlFolder(path.join(root, 'samples', kind, 'definition'))
+    model.name = kind === 'reference' ? 'Sample Sales — Reference' : 'Sample Sales — Candidate'
+    return send(res,200,model)
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/models/parse-folder') {
     const body = await json(req, 50 * 1024 * 1024)
     validateFolderPayload(body)
@@ -116,7 +126,7 @@ async function api(req, res, url) {
     return send(res,200,model)
   }
 
-  // Optional fallback for users who already have a ZIP.
+  // Legacy ZIP parser remains server-side for compatibility, but is no longer exposed in the UI.
   if (req.method === 'POST' && url.pathname === '/api/models/parse') {
     const buffer = await readBody(req)
     const model = await parseZip(buffer, req.headers['x-file-name'])
