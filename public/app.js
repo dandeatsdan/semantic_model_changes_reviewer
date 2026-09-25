@@ -334,8 +334,10 @@ const DAX_KEYWORDS = new Set([
   'CONCATENATEX','FORMAT','RANKX','TOPN'
 ])
 
-function highlightDax(expression) {
-  const source = formatDaxForDisplay(expression)
+function highlightDax(expression, format = true) {
+  const source = format
+    ? formatDaxForDisplay(expression)
+    : String(expression ?? '').replace(/\r/g, '')
   let html = ''
   let i = 0
 
@@ -431,7 +433,7 @@ function formatCodeForDiff(value, language) {
 }
 
 function highlightCodeLine(line, language) {
-  if (language === 'dax') return highlightDax(line)
+  if (language === 'dax') return highlightDax(line, false)
   return esc(line)
 }
 
