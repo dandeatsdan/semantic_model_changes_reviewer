@@ -31,7 +31,7 @@ For both Reference and Candidate, select either:
 
 The browser ignores the report, cache and editor files and sends only the TMDL files in the semantic model definition to the backend.
 
-The UI also provides **Use sample data** for both Reference and Candidate so the complete review workflow can be demonstrated without supplying a Power BI model. The older ZIP parser remains in the backend only for compatibility; it is no longer part of the normal UI.
+The UI also provides **Use sample data** for both Reference and Candidate so the complete review workflow can be demonstrated without supplying a Power BI model. ZIP upload is no longer part of the application workflow.
 
 If the selected PBIP contains `model.bim` rather than a `definition/` TMDL folder, the app tells you that the model needs to be saved/upgraded using TMDL format.
 
