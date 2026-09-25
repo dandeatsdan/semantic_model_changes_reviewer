@@ -6,6 +6,7 @@ let reference = null
 let candidate = null
 let current = null
 let selectedId = null
+let codeDiffMode = 'split'
 
 const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))
 const cls = v => String(v).replaceAll(' ', '')
@@ -417,6 +418,184 @@ function highlightDax(expression) {
   return html
 }
 
+function codeLanguage(change, property) {
+  if (property.property !== 'expression') return null
+  if (['Measure','Calculated Column','Calculated Table','Calculation Item'].includes(change.objectType)) return 'dax'
+  if (['Partition','Power Query Expression','Expression'].includes(change.objectType)) return 'm'
+  return null
+}
+
+function formatCodeForDiff(value, language) {
+  const source = String(value ?? '').replace(/\r/g, '').trim()
+  return language === 'dax' ? formatDaxForDisplay(source) : source
+}
+
+function highlightCodeLine(line, language) {
+  if (language === 'dax') return highlightDax(line)
+  return esc(line)
+}
+
+function lineDiff(reference, candidate, language) {
+  const left = formatCodeForDiff(reference, language).split('\n')
+  const right = formatCodeForDiff(candidate, language).split('\n')
+  const n = left.length
+  const m = right.length
+
+  // Avoid quadratic memory use for unusually large expressions.
+  if (n * m > 120000) {
+    return [
+      ...left.map(text => ({ type:'remove', text })),
+      ...right.map(text => ({ type:'add', text }))
+    ]
+  }
+
+  const lcs = Array.from({ length:n + 1 }, () => new Uint32Array(m + 1))
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lcs[i][j] = left[i] === right[j]
+        ? lcs[i + 1][j + 1] + 1
+        : Math.max(lcs[i + 1][j], lcs[i][j + 1])
+    }
+  }
+
+  const ops = []
+  let i = 0
+  let j = 0
+
+  while (i < n && j < m) {
+    if (left[i] === right[j]) {
+      ops.push({ type:'context', text:left[i] })
+      i++
+      j++
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      ops.push({ type:'remove', text:left[i++] })
+    } else {
+      ops.push({ type:'add', text:right[j++] })
+    }
+  }
+
+  while (i < n) ops.push({ type:'remove', text:left[i++] })
+  while (j < m) ops.push({ type:'add', text:right[j++] })
+  return ops
+}
+
+function splitDiffRows(ops) {
+  const rows = []
+  let oldLine = 1
+  let newLine = 1
+  let i = 0
+
+  while (i < ops.length) {
+    if (ops[i].type === 'context') {
+      rows.push({
+        left:{ type:'context', text:ops[i].text, line:oldLine++ },
+        right:{ type:'context', text:ops[i].text, line:newLine++ }
+      })
+      i++
+      continue
+    }
+
+    const chunk = []
+    while (i < ops.length && ops[i].type !== 'context') chunk.push(ops[i++])
+    const removed = chunk.filter(op => op.type === 'remove')
+    const added = chunk.filter(op => op.type === 'add')
+    const count = Math.max(removed.length, added.length)
+
+    for (let k = 0; k < count; k++) {
+      rows.push({
+        left: removed[k] ? { type:'remove', text:removed[k].text, line:oldLine++ } : null,
+        right: added[k] ? { type:'add', text:added[k].text, line:newLine++ } : null
+      })
+    }
+  }
+
+  return rows
+}
+
+function renderDiffCell(cell, language, side) {
+  if (!cell) {
+    return `<div class="git-diff-cell empty ${side}">
+      <span class="git-line-number"></span><span class="git-marker"></span><code></code>
+    </div>`
+  }
+
+  const marker = cell.type === 'add' ? '+' : cell.type === 'remove' ? '−' : ' '
+  return `<div class="git-diff-cell ${cell.type} ${side}">
+    <span class="git-line-number">${cell.line}</span>
+    <span class="git-marker">${marker}</span>
+    <code>${highlightCodeLine(cell.text, language) || '&nbsp;'}</code>
+  </div>`
+}
+
+function renderSplitDiff(ops, language) {
+  const rows = splitDiffRows(ops)
+  return `
+    <div class="git-split-head">
+      <div>Reference</div>
+      <div>Candidate</div>
+    </div>
+    <div class="git-split-body">
+      ${rows.map(row => `
+        ${renderDiffCell(row.left, language, 'left')}
+        ${renderDiffCell(row.right, language, 'right')}
+      `).join('')}
+    </div>
+  `
+}
+
+function renderUnifiedDiff(ops, language) {
+  let oldLine = 1
+  let newLine = 1
+
+  return `<div class="git-unified-body">${ops.map(op => {
+    const oldNo = op.type === 'add' ? '' : oldLine++
+    const newNo = op.type === 'remove' ? '' : newLine++
+    const marker = op.type === 'add' ? '+' : op.type === 'remove' ? '−' : ' '
+    return `<div class="git-unified-row ${op.type}">
+      <span class="git-line-number old">${oldNo}</span>
+      <span class="git-line-number new">${newNo}</span>
+      <span class="git-marker">${marker}</span>
+      <code>${highlightCodeLine(op.text, language) || '&nbsp;'}</code>
+    </div>`
+  }).join('')}</div>`
+}
+
+function renderCodeDiff(change, property, index) {
+  const language = codeLanguage(change, property) || 'text'
+  const ops = lineDiff(property.reference, property.candidate, language)
+  const added = ops.filter(op => op.type === 'add').length
+  const removed = ops.filter(op => op.type === 'remove').length
+  const body = codeDiffMode === 'unified'
+    ? renderUnifiedDiff(ops, language)
+    : renderSplitDiff(ops, language)
+
+  return `
+    <div class="git-diff" data-diff-index="${index}">
+      <div class="git-diff-toolbar">
+        <div>
+          <b>${esc(property.property)}</b>
+          <span class="small muted">${language === 'dax' ? 'DAX' : language === 'm' ? 'Power Query M' : 'Code'} · </span>
+          <span class="diff-stat add">+${added}</span>
+          <span class="diff-stat remove">−${removed}</span>
+        </div>
+        <div class="diff-toggle" role="group" aria-label="Diff view">
+          <button type="button" class="${codeDiffMode === 'split' ? 'active' : ''}" data-diff-mode="split">Split</button>
+          <button type="button" class="${codeDiffMode === 'unified' ? 'active' : ''}" data-diff-mode="unified">Unified</button>
+        </div>
+      </div>
+      <div class="git-diff-body" data-diff-body="${index}">${body}</div>
+    </div>
+  `
+}
+
+function renderCodeDiffBody(change, property) {
+  const language = codeLanguage(change, property) || 'text'
+  const ops = lineDiff(property.reference, property.candidate, language)
+  return codeDiffMode === 'unified'
+    ? renderUnifiedDiff(ops, language)
+    : renderSplitDiff(ops, language)
+}
+
 function renderReview() {
   if (!current) return
   const selected = current.changes.find(c => c.id === selectedId) || current.changes[0]
@@ -569,24 +748,24 @@ function renderDetail(c) {
   let diffs = ''
 
   if (c.changeType === 'Modified') {
-    diffs = `
-      <div class="diff-grid">
-        <div class="h">Property</div>
-        <div class="h">Reference</div>
-        <div class="h">Candidate</div>
-        ${c.propertyChanges.map(p => {
-          const isDax = c.objectType === 'Measure' && p.property === 'expression'
-          const codeClass = isDax ? 'code dax-code' : 'code'
-          const referenceValue = isDax ? highlightDax(p.reference) : esc(p.reference)
-          const candidateValue = isDax ? highlightDax(p.candidate) : esc(p.candidate)
-          return `
+    const codeChanges = c.propertyChanges.filter(p => codeLanguage(c, p))
+    const metadataChanges = c.propertyChanges.filter(p => !codeLanguage(c, p))
+
+    diffs = [
+      metadataChanges.length ? `
+        <div class="diff-grid">
+          <div class="h">Property</div>
+          <div class="h">Reference</div>
+          <div class="h">Candidate</div>
+          ${metadataChanges.map(p => `
             <div class="prop">${esc(p.property)}</div>
-            <div class="${codeClass}">${referenceValue}</div>
-            <div class="${codeClass}">${candidateValue}</div>
-          `
-        }).join('')}
-      </div>
-    `
+            <div class="code">${esc(p.reference)}</div>
+            <div class="code">${esc(p.candidate)}</div>
+          `).join('')}
+        </div>
+      ` : '',
+      ...codeChanges.map((p, index) => renderCodeDiff(c, p, index))
+    ].join('')
   } else {
     const obj = c.changeType === 'Added' ? c.candidateObject : c.referenceObject
     const sideLabel = c.changeType === 'Added' ? 'Candidate' : 'Reference'
@@ -656,6 +835,23 @@ function renderDetail(c) {
 
     ${c.reviewedAt ? `<div class="small muted" style="margin-top:.6rem">Last reviewed ${new Date(c.reviewedAt).toLocaleString()}</div>` : ''}
   `
+
+  const codeChanges = c.changeType === 'Modified'
+    ? c.propertyChanges.filter(p => codeLanguage(c, p))
+    : []
+
+  el.querySelectorAll('[data-diff-mode]').forEach(button => {
+    button.onclick = () => {
+      codeDiffMode = button.dataset.diffMode
+      el.querySelectorAll('[data-diff-mode]').forEach(x =>
+        x.classList.toggle('active', x.dataset.diffMode === codeDiffMode)
+      )
+      codeChanges.forEach((property, index) => {
+        const body = el.querySelector(`[data-diff-body="${index}"]`)
+        if (body) body.innerHTML = renderCodeDiffBody(c, property)
+      })
+    }
+  })
 
   let status = c.reviewStatus
   el.querySelectorAll('[data-status]').forEach(button => {
