@@ -4,6 +4,7 @@ import os from 'node:os'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { parseTmdlFolder, parseTmdlFiles } from './tmdlParser.js'
+import { sampleModels } from './sampleData.js'
 import { compareModels } from './compare.js'
 import { createStore } from './db.js'
 
@@ -113,8 +114,9 @@ export async function handleApiRequest(req, res, url) {
     if (!['reference','candidate'].includes(kind)) {
       return send(res,400,{error:'Sample kind must be reference or candidate'})
     }
-    const model = await parseTmdlFolder(path.join(root, 'samples', kind, 'definition'))
-    model.name = kind === 'reference' ? 'Sample Sales — Reference' : 'Sample Sales — Candidate'
+    const sample = sampleModels[kind]
+    const model = parseTmdlFiles(sample.files, sample.name)
+    model.name = sample.name
     return send(res,200,model)
   }
 
