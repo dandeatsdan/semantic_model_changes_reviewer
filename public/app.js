@@ -46,8 +46,8 @@ function renderNew() {
       <div>
         <h1>Start a semantic model review</h1>
         <div class="muted">
-          Select the root PBIP project folder for the reference and candidate models.
-          The app reads only the semantic model TMDL definition and ignores report, cache and editor files.
+          Use the bundled sample models to explore the semantic model review workflow.
+          PBIP project upload is temporarily disabled in the hosted demo.
         </div>
       </div>
     </div>
@@ -64,10 +64,9 @@ function renderNew() {
     </div>
 
     <div class="panel small muted" style="margin-top:1rem">
-      <b>Expected PBIP structure</b><br>
-      Project root → <code>&lt;name&gt;.SemanticModel</code> → <code>definition</code> → <code>*.tmdl</code>.
-      You can select the whole PBIP project folder, the <code>.SemanticModel</code> folder, or the
-      <code>definition</code> folder itself. For a quick demo, use the bundled sample model instead.
+      <b>Hosted demo mode</b><br>
+      File upload is temporarily disabled while the hosted workflow is being hardened.
+      Use the bundled synthetic Reference and Candidate models to explore comparison, diffing and review decisions.
     </div>
 
     <div style="margin-top:1rem;display:flex;justify-content:flex-end">
@@ -84,9 +83,9 @@ function modelPicker(prefix, title) {
   return `
     <div class="card upload-card" id="${prefix}Card">
       <h2>${title}</h2>
-      <label class="file">
-        Choose PBIP project folder
-        <input id="${prefix}Folder" type="file" webkitdirectory directory multiple>
+      <label class="file file-disabled" title="PBIP upload is temporarily disabled">
+        PBIP upload temporarily disabled
+        <input id="${prefix}Folder" type="file" webkitdirectory directory multiple disabled>
       </label>
       <div class="or-separator"><span>or</span></div>
       <button type="button" id="${prefix}Sample" class="secondary sample-button">
