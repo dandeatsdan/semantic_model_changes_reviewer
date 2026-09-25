@@ -12,7 +12,10 @@ import { createStore } from './db.js'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(__dirname, '..')
 const publicDir = path.join(root, 'public')
-const store = createStore(process.env.SMR_DB ?? path.join(root, 'data', 'reviews.db'))
+const defaultDbPath = process.env.VERCEL
+  ? path.join(os.tmpdir(), 'semantic-model-reviewer', 'reviews.db')
+  : path.join(root, 'data', 'reviews.db')
+const store = createStore(process.env.SMR_DB ?? defaultDbPath)
 const port = Number(process.env.PORT ?? 5174)
 
 function send(res, status, body, headers = {}) {
