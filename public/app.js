@@ -66,7 +66,7 @@ function renderNew() {
       <b>Expected PBIP structure</b><br>
       Project root → <code>&lt;name&gt;.SemanticModel</code> → <code>definition</code> → <code>*.tmdl</code>.
       You can select the whole PBIP project folder, the <code>.SemanticModel</code> folder, or the
-      <code>definition</code> folder itself. ZIP remains available as a fallback.
+      <code>definition</code> folder itself. For a quick demo, use the bundled sample model instead.
     </div>
 
     <div style="margin-top:1rem;display:flex;justify-content:flex-end">
@@ -88,10 +88,9 @@ function modelPicker(prefix, title) {
         <input id="${prefix}Folder" type="file" webkitdirectory directory multiple>
       </label>
       <div class="or-separator"><span>or</span></div>
-      <label class="file file-compact">
-        Choose ZIP
-        <input id="${prefix}Zip" type="file" accept=".zip">
-      </label>
+      <button type="button" id="${prefix}Sample" class="secondary sample-button">
+        Use sample data
+      </button>
       <div id="${prefix}Meta" class="small muted" style="margin-top:.7rem">No model loaded</div>
     </div>
   `
@@ -99,7 +98,7 @@ function modelPicker(prefix, title) {
 
 function bindPicker(prefix, which) {
   document.querySelector('#' + prefix + 'Folder').onchange = e => loadFolder(e.target.files, which)
-  document.querySelector('#' + prefix + 'Zip').onchange = e => loadZip(e.target.files[0], which)
+  document.querySelector('#' + prefix + 'Sample').onclick = () => loadSample(which)
 }
 
 function setModel(which, model, sourceName) {
@@ -193,22 +192,25 @@ async function loadFolder(fileList, which) {
   }
 }
 
-async function loadZip(file, which) {
-  if (!file) return
+async function loadSample(which) {
   const prefix = which === 'reference' ? 'ref' : 'cand'
   const meta = document.querySelector('#' + prefix + 'Meta')
-  meta.textContent = 'Reading ZIP…'
+  const button = document.querySelector('#' + prefix + 'Sample')
+  meta.textContent = 'Loading sample model…'
+  button.disabled = true
 
   try {
-    const model = await api('/api/models/parse', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/zip', 'X-File-Name': file.name },
-      body: file
-    })
-    setModel(which, model, file.name)
+    const model = await api('/api/models/sample?kind=' + encodeURIComponent(which))
+    const sourceName = which === 'reference'
+      ? 'Sample Sales — Reference'
+      : 'Sample Sales — Candidate'
+    setModel(which, model, sourceName)
+    toast(`${which === 'reference' ? 'Reference' : 'Candidate'} sample loaded`)
   } catch (e) {
     meta.textContent = e.message
     toast(e.message)
+  } finally {
+    button.disabled = false
   }
 }
 
@@ -320,6 +322,99 @@ function formatDaxForDisplay(expression) {
   }
 
   return output
+}
+
+const DAX_KEYWORDS = new Set([
+  'VAR','RETURN','IF','SWITCH','TRUE','FALSE','BLANK','CALCULATE','CALCULATETABLE',
+  'FILTER','ALL','ALLSELECTED','REMOVEFILTERS','KEEPFILTERS','VALUES','SELECTEDVALUE',
+  'SUM','SUMX','AVERAGE','AVERAGEX','MIN','MAX','COUNT','COUNTROWS','DISTINCTCOUNT',
+  'DIVIDE','COALESCE','RELATED','RELATEDTABLE','DATE','YEAR','MONTH','DAY','TODAY',
+  'SAMEPERIODLASTYEAR','DATEADD','TOTALYTD','TOTALMTD','TOTALQTD','ISBLANK','HASONEVALUE',
+  'CONCATENATEX','FORMAT','RANKX','TOPN'
+])
+
+function highlightDax(expression) {
+  const source = formatDaxForDisplay(expression)
+  let html = ''
+  let i = 0
+
+  while (i < source.length) {
+    const rest = source.slice(i)
+
+    if (source.startsWith('//', i)) {
+      const end = source.indexOf('\n', i)
+      const stop = end === -1 ? source.length : end
+      html += `<span class="dax-comment">${esc(source.slice(i, stop))}</span>`
+      i = stop
+      continue
+    }
+
+    if (source[i] === '"') {
+      let j = i + 1
+      while (j < source.length) {
+        if (source[j] === '"' && source[j + 1] === '"') { j += 2; continue }
+        if (source[j] === '"') { j++; break }
+        j++
+      }
+      html += `<span class="dax-string">${esc(source.slice(i, j))}</span>`
+      i = j
+      continue
+    }
+
+    if (source[i] === "'") {
+      let j = i + 1
+      while (j < source.length) {
+        if (source[j] === "'" && source[j + 1] === "'") { j += 2; continue }
+        if (source[j] === "'") { j++; break }
+        j++
+      }
+      html += `<span class="dax-table">${esc(source.slice(i, j))}</span>`
+      i = j
+      continue
+    }
+
+    if (source[i] === '[') {
+      const end = source.indexOf(']', i + 1)
+      const j = end === -1 ? source.length : end + 1
+      html += `<span class="dax-reference">${esc(source.slice(i, j))}</span>`
+      i = j
+      continue
+    }
+
+    const number = rest.match(/^\d+(?:\.\d+)?/)
+    if (number) {
+      html += `<span class="dax-number">${number[0]}</span>`
+      i += number[0].length
+      continue
+    }
+
+    const word = rest.match(/^[A-Za-z_][A-Za-z0-9_.]*/)
+    if (word) {
+      const token = word[0]
+      let look = i + token.length
+      while (source[look] === ' ') look++
+      const upper = token.toUpperCase()
+      const className = DAX_KEYWORDS.has(upper)
+        ? 'dax-keyword'
+        : source[look] === '('
+          ? 'dax-function'
+          : ''
+      html += className ? `<span class="${className}">${esc(token)}</span>` : esc(token)
+      i += token.length
+      continue
+    }
+
+    if ('+-*/=<>:&|'.includes(source[i])) {
+      html += `<span class="dax-operator">${esc(source[i])}</span>`
+      i++
+      continue
+    }
+
+    html += esc(source[i])
+    i++
+  }
+
+  return html
 }
 
 function renderReview() {
@@ -481,13 +576,13 @@ function renderDetail(c) {
         <div class="h">Candidate</div>
         ${c.propertyChanges.map(p => {
           const isDax = c.objectType === 'Measure' && p.property === 'expression'
-          const referenceValue = isDax ? formatDaxForDisplay(p.reference) : p.reference
-          const candidateValue = isDax ? formatDaxForDisplay(p.candidate) : p.candidate
           const codeClass = isDax ? 'code dax-code' : 'code'
+          const referenceValue = isDax ? highlightDax(p.reference) : esc(p.reference)
+          const candidateValue = isDax ? highlightDax(p.candidate) : esc(p.candidate)
           return `
             <div class="prop">${esc(p.property)}</div>
-            <div class="${codeClass}">${esc(referenceValue)}</div>
-            <div class="${codeClass}">${esc(candidateValue)}</div>
+            <div class="${codeClass}">${referenceValue}</div>
+            <div class="${codeClass}">${candidateValue}</div>
           `
         }).join('')}
       </div>
@@ -510,7 +605,7 @@ function renderDetail(c) {
             <span>DAX expression</span>
             <span class="small muted">${sideLabel}</span>
           </div>
-          <pre class="code dax-code">${esc(formatDaxForDisplay(obj.expression))}</pre>
+          <pre class="code dax-code">${highlightDax(obj.expression)}</pre>
           ${metadata.length ? `
             <div class="measure-meta">
               ${metadata.map(([label, value]) => `
