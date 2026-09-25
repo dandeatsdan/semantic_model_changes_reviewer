@@ -31,7 +31,7 @@ For both Reference and Candidate, select either:
 
 The browser ignores the report, cache and editor files and sends only the TMDL files in the semantic model definition to the backend.
 
-ZIP upload remains available as an optional fallback; you do **not** need to create ZIPs for normal use.
+The UI also provides **Use sample data** for both Reference and Candidate so the complete review workflow can be demonstrated without supplying a Power BI model. The older ZIP parser remains in the backend only for compatibility; it is no longer part of the normal UI.
 
 If the selected PBIP contains `model.bim` rather than a `definition/` TMDL folder, the app tells you that the model needs to be saved/upgraded using TMDL format.
 
@@ -139,3 +139,12 @@ Other current limitations:
 8. Git / pull-request integration
 9. Approved changeset generation
 10. Controlled semantic-model promotion
+
+
+## Vercel demo
+
+The bundled sample models are intended to make a public Vercel deployment easy to explore without uploading any proprietary semantic model.
+
+On Vercel, the application automatically places its SQLite review database in temporary runtime storage. This is suitable for demonstration only: saved reviews can disappear between function instances, restarts, or deployments.
+
+For durable public/multi-user review persistence, replace the temporary SQLite store with a persistent database such as Neon Postgres. Local VS Code use is unchanged and continues to store reviews in `data/reviews.db`.
