@@ -1,9 +1,7 @@
-import fs from 'node:fs/promises'
 import path from 'node:path'
 import os from 'node:os'
-import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import { parseTmdlFolder, parseTmdlFiles } from './tmdlParser.js'
+import { parseTmdlFiles } from './tmdlParser.js'
 import { sampleModels } from './sampleData.js'
 import { compareModels } from './compare.js'
 import { createStore } from './db.js'
@@ -39,47 +37,6 @@ async function readBody(req, limit = 80 * 1024 * 1024) {
 async function json(req, limit = 30 * 1024 * 1024) {
   const b = await readBody(req, limit)
   return b.length ? JSON.parse(b.toString('utf8')) : {}
-}
-
-async function findDefinition(dir) {
-  const matches = []
-  async function walk(d) {
-    for (const e of await fs.readdir(d, { withFileTypes: true })) {
-      const full = path.join(d, e.name)
-      if (e.isDirectory()) {
-        if (e.name === 'definition') {
-          const names = await fs.readdir(full)
-          if (names.some(n => n.endsWith('.tmdl')) || names.includes('tables')) matches.push(full)
-        }
-        await walk(full)
-      }
-    }
-  }
-  await walk(dir)
-  return matches.sort((a,b) => a.length - b.length)[0] ?? null
-}
-
-function cleanFileName(name) {
-  return path.basename(name || 'semantic-model.zip').replace(/[^a-zA-Z0-9._-]/g, '_')
-}
-
-async function parseZip(buffer, originalName) {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'smr-'))
-  try {
-    const zipPath = path.join(tmp, cleanFileName(originalName))
-    await fs.writeFile(zipPath, buffer)
-    const outDir = path.join(tmp, 'unzipped')
-    await fs.mkdir(outDir)
-    const result = spawnSync('unzip', ['-q', zipPath, '-d', outDir], { encoding:'utf8' })
-    if (result.status !== 0) throw new Error(`Unable to extract ZIP: ${result.stderr || 'invalid archive'}`)
-    const definition = await findDefinition(outDir)
-    if (!definition) throw new Error('No Power BI TMDL definition folder was found in this ZIP')
-    const model = await parseTmdlFolder(definition)
-    model.name = originalName?.replace(/\.zip$/i,'') || model.name
-    return model
-  } finally {
-    await fs.rm(tmp, { recursive:true, force:true })
-  }
 }
 
 function validateFolderPayload(body) {
@@ -124,13 +81,6 @@ export async function handleApiRequest(req, res, url) {
     const body = await json(req, 50 * 1024 * 1024)
     validateFolderPayload(body)
     const model = parseTmdlFiles(body.files, body.modelName || body.projectName || 'Semantic Model')
-    return send(res,200,model)
-  }
-
-  // Legacy ZIP parser remains server-side for compatibility, but is no longer exposed in the UI.
-  if (req.method === 'POST' && url.pathname === '/api/models/parse') {
-    const buffer = await readBody(req)
-    const model = await parseZip(buffer, req.headers['x-file-name'])
     return send(res,200,model)
   }
 
